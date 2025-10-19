@@ -104,7 +104,14 @@
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm text-left text-gray-500">
                                 <thead class="text-xs text-gray-700 uppercase bg-gray-100">
-                                    <tr><th scope="col" class="px-6 py-3">Saham</th><th scope="col" class="px-6 py-3">Tgl Rekomendasi</th><th scope="col" class="px-6 py-3 text-right">Harga Awal</th><th scope="col" class="px-6 py-3 text-right">Harga Terkini</th><th scope="col" class="px-6 py-3 text-right">Gain (%)</th></tr>
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3">Saham</th>
+                                        <th scope="col" class="px-6 py-3">Tgl Rekomendasi</th>
+                                        <th scope="col" class="px-6 py-3 text-right">Harga Awal</th>
+                                        <th scope="col" class="px-6 py-3 text-right">Harga Terkini</th>
+                                        <th scope="col" class="px-6 py-3 text-right">Gain (%)</th>
+                                        <th scope="col" class="px-6 py-3 text-center">Aksi</th>
+                                    </tr>
                                 </thead>
                                 <tbody id="performance-table-body"></tbody>
                             </table>
@@ -217,6 +224,23 @@
             async function handleManualAnalysis() { /* ... (fungsi ini tidak berubah) ... */ }
 
             async function callGeminiAPI(prompt) { /* ... (fungsi ini tidak berubah) ... */ }
+            
+            async function removeStockFromAiRecs(id) {
+                try {
+                    await deleteDoc(doc(db, "ai_recommendations", id));
+                    showToast(`Rekomendasi berhasil dihapus.`);
+                    // Clear all related caches to force a refresh
+                    localStorage.removeItem('ai_perf_daily');
+                    localStorage.removeItem('ai_perf_weekly');
+                    localStorage.removeItem('ai_perf_monthly');
+                } catch (error) {
+                    showToast(`Gagal menghapus: ${error.message}`);
+                    console.error("Error removing AI recommendation:", error);
+                }
+                // Re-render the current view to reflect deletion
+                const currentPeriod = document.querySelector('.time-filter-btn.active-filter').dataset.period;
+                await renderPerformance(currentPeriod);
+            }
 
             function displayAiPerformancePage(page) {
                 aiCurrentPage = page;
@@ -227,7 +251,7 @@
                 const nextButton = document.getElementById('ai-next-page');
 
                 if (aiPerformanceData.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="5" class="text-center p-8 text-gray-500">Tidak ada data untuk ditampilkan.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-gray-500">Tidak ada data untuk ditampilkan.</td></tr>`;
                     paginationContainer.classList.add('hidden');
                     return;
                 }
@@ -243,10 +267,11 @@
                     row.className = `bg-white border-b hover:bg-gray-50 ${data.is_top_pick ? 'top-pick-highlight' : ''}`;
                     const gainClass = data.gain > 0 ? 'positive-gain' : (data.gain < 0 ? 'negative-gain' : 'neutral-gain');
                     const gainIcon = data.gain > 0 ? 'fa-arrow-up' : 'fa-arrow-down';
-                    row.innerHTML = `<td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${data.ticker} ${data.is_top_pick ? '<i class="fas fa-star text-yellow-400 ml-1"></i>' : ''}</td><td class="px-6 py-4">${data.date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</td><td class="px-6 py-4 text-right">Rp ${Math.round(data.initialPrice).toLocaleString('id-ID')}</td><td class="px-6 py-4 text-right">Rp ${Math.round(data.currentPrice).toLocaleString('id-ID')}</td><td class="px-6 py-4 text-right"><span class="font-semibold ${gainClass}">${data.gain > 0 ? '+' : ''}${data.gain.toFixed(2)}% ${data.gain !== 0 ? `<i class="fas ${gainIcon} ml-1 text-xs"></i>` : ''}</span></td>`;
+                    row.innerHTML = `<td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${data.ticker} ${data.is_top_pick ? '<i class="fas fa-star text-yellow-400 ml-1"></i>' : ''}</td><td class="px-6 py-4">${data.date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</td><td class="px-6 py-4 text-right">Rp ${Math.round(data.initialPrice).toLocaleString('id-ID')}</td><td class="px-6 py-4 text-right">Rp ${Math.round(data.currentPrice).toLocaleString('id-ID')}</td><td class="px-6 py-4 text-right"><span class="font-semibold ${gainClass}">${data.gain > 0 ? '+' : ''}${data.gain.toFixed(2)}% ${data.gain !== 0 ? `<i class="fas ${gainIcon} ml-1 text-xs"></i>` : ''}</span></td><td class="px-6 py-4 text-center"><button data-id="${data.id}" class="remove-ai-btn text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button></td>`;
                     tableBody.appendChild(row);
                 });
 
+                document.querySelectorAll('.remove-ai-btn').forEach(button => { button.addEventListener('click', (e) => removeStockFromAiRecs(e.currentTarget.dataset.id)); });
                 pageInfo.textContent = `Halaman ${page} dari ${totalPages}`;
                 prevButton.disabled = page === 1;
                 nextButton.disabled = page === totalPages;
@@ -262,9 +287,9 @@
                 if (cached) {
                     aiPerformanceData = cached.map(item => ({...item, date: new Date(item.date) })); // Re-create Date objects
                     displayAiPerformancePage(1);
-                    tableBody.innerHTML += `<tr><td colspan="5" class="text-center p-2 text-xs text-blue-500 italic">Menampilkan data cache. Memuat data terbaru...</td></tr>`;
+                    tableBody.innerHTML += `<tr><td colspan="6" class="text-center p-2 text-xs text-blue-500 italic">Menampilkan data cache. Memuat data terbaru...</td></tr>`;
                 } else {
-                     tableBody.innerHTML = `<tr><td colspan="5" class="text-center p-8 text-gray-500">Memuat data performa...</td></tr>`;
+                     tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-gray-500">Memuat data performa...</td></tr>`;
                 }
 
                 if (!db || !auth.currentUser) { return; }
@@ -293,7 +318,7 @@
                         const recommendationDate = stock.created_at.toDate();
                         const currentPrice = currentData ? currentData.price : initialPrice;
                         const gain = ((currentPrice - initialPrice) / initialPrice) * 100;
-                        tempPerformanceData.push({ ...stock, date: recommendationDate, initialPrice, currentPrice, gain: parseFloat(gain.toFixed(2)) });
+                        tempPerformanceData.push({ ...stock, id: doc.id, date: recommendationDate, initialPrice, currentPrice, gain: parseFloat(gain.toFixed(2)) });
                     }
 
                     aiPerformanceData = tempPerformanceData.sort((a, b) => b.date - a.date);
@@ -302,7 +327,7 @@
 
                 } catch (error) {
                     console.error("Error fetching performance data:", error);
-                    tableBody.innerHTML = `<tr><td colspan="5" class="text-center p-8 text-red-500">Gagal memuat data performa.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-red-500">Gagal memuat data performa.</td></tr>`;
                 }
             }
 
