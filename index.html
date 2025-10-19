@@ -11,7 +11,7 @@
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, query, where, Timestamp, deleteDoc, doc, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, query, where, Timestamp, deleteDoc, doc, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         
         // Your web app's Firebase configuration
@@ -35,7 +35,7 @@
         window.db = db;
         window.auth = auth;
         window.firebase = {
-            collection, addDoc, getDocs, query, where, Timestamp, deleteDoc, doc, signInAnonymously, onAuthStateChanged, orderBy
+            collection, addDoc, getDocs, query, where, Timestamp, deleteDoc, doc, signInAnonymously, onAuthStateChanged, orderBy, writeBatch
         };
     </script>
     <style>
@@ -53,6 +53,31 @@
         #manual-analysis-result p { margin-bottom: 1rem; }
         .top-pick-highlight { background-color: #D1FAE5 !important; }
         .top-pick-highlight td:first-child { font-weight: bold; }
+        /* Responsive table cell padding */
+        .responsive-px { padding-left: 0.5rem; padding-right: 0.5rem; }
+        @media (min-width: 640px) { .responsive-px { padding-left: 1.5rem; padding-right: 1.5rem; } }
+        
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            width: 90%;
+            max-width: 400px;
+        }
     </style>
 </head>
 <body class="text-gray-800">
@@ -61,11 +86,11 @@
 
         <!-- Header -->
         <header class="mb-8">
-             <div class="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-2xl shadow-lg">
+             <div class="flex flex-col md:flex-row justify-between items-center bg-white p-4 sm:p-6 rounded-2xl shadow-lg">
                  <div class="flex items-center space-x-4">
-                    <div class="bg-blue-600 p-3 rounded-full"><i class="fas fa-chart-line text-white text-2xl"></i></div>
+                    <div class="bg-blue-600 p-3 rounded-full"><i class="fas fa-chart-line text-white text-xl sm:text-2xl"></i></div>
                     <div>
-                        <h1 class="text-2xl md:text-3xl font-bold text-gray-900">Analisa Saham Pro</h1>
+                        <h1 class="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900">Analisa Saham Pro</h1>
                         <p id="current-date" class="text-gray-500 text-sm">Memuat data...</p>
                     </div>
                 </div>
@@ -79,25 +104,30 @@
         <!-- Main Content -->
         <main>
             <!-- Tab Navigation -->
-            <div class="mb-6"><div class="border-b border-gray-200"><nav class="-mb-px flex space-x-8" aria-label="Tabs"><button id="tab-btn-dashboard" class="tab-btn active whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">Dashboard</button><button id="tab-btn-manual" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Analisis Manual</button><button id="tab-btn-tracking" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Lacak Manual</button></nav></div></div>
+            <div class="mb-6"><div class="border-b border-gray-200"><nav class="-mb-px flex space-x-4 sm:space-x-8 text-sm sm:text-base" aria-label="Tabs"><button id="tab-btn-dashboard" class="tab-btn active whitespace-nowrap py-4 px-1 border-b-2 font-medium">Dashboard</button><button id="tab-btn-manual" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Analisis Manual</button><button id="tab-btn-tracking" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Lacak Manual</button></nav></div></div>
             
             <!-- Dashboard Tab -->
             <div id="tab-content-dashboard" class="tab-content">
                 <section id="ai-recommendation-generator" class="mb-8 bg-white p-6 rounded-2xl shadow-lg text-center">
                     <h2 class="text-xl font-bold text-gray-800">Rekomendasi Saham Hari Ini</h2>
                     <p id="ai-recommendation-status" class="text-gray-500 mt-2 mb-4">Menganalisis pasar untuk rekomendasi hari ini...</p>
-                    <button id="get-ai-recommendation-btn" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 transition duration-300">
-                        <i class="fas fa-wand-magic-sparkles mr-2"></i> Dapatkan Rekomendasi AI Hari Ini
+                    <button id="get-ai-recommendation-btn" class="bg-blue-600 text-white font-bold py-3 px-6 sm:px-8 rounded-lg hover:bg-blue-700 transition duration-300 text-sm sm:text-base">
+                        <i class="fas fa-wand-magic-sparkles mr-2"></i> Dapatkan Rekomendasi AI
                     </button>
                 </section>
 
                 <section id="performance">
-                    <div class="flex flex-col md:flex-row justify-between items-center mb-4">
-                        <h2 class="text-xl font-bold text-gray-700 mb-2 md:mb-0">Lacak Performa Rekomendasi AI</h2>
-                        <div id="time-filter" class="flex items-center bg-white rounded-lg shadow-sm p-1 space-x-1">
-                            <button data-period="daily" class="time-filter-btn active-filter font-semibold py-2 px-4 rounded-md text-sm">Harian</button>
-                            <button data-period="weekly" class="time-filter-btn py-2 px-4 rounded-md text-sm">Pekanan</button>
-                            <button data-period="monthly" class="time-filter-btn py-2 px-4 rounded-md text-sm">Bulanan</button>
+                    <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                        <div class="flex items-center gap-4 w-full md:w-auto">
+                            <h2 class="text-xl font-bold text-gray-700">Lacak Performa AI</h2>
+                            <button id="bulk-delete-ai-btn" class="hidden bg-red-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-600 text-sm">
+                                <i class="fas fa-trash-alt mr-2"></i>Hapus Terpilih
+                            </button>
+                        </div>
+                        <div id="time-filter" class="flex items-center bg-white rounded-lg shadow-sm p-1 space-x-1 w-full md:w-auto justify-center">
+                            <button data-period="daily" class="time-filter-btn active-filter font-semibold py-2 px-4 rounded-md text-sm w-full">Harian</button>
+                            <button data-period="weekly" class="time-filter-btn py-2 px-4 rounded-md text-sm w-full">Pekanan</button>
+                            <button data-period="monthly" class="time-filter-btn py-2 px-4 rounded-md text-sm w-full">Bulanan</button>
                         </div>
                     </div>
                     <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
@@ -105,12 +135,13 @@
                             <table class="w-full text-sm text-left text-gray-500">
                                 <thead class="text-xs text-gray-700 uppercase bg-gray-100">
                                     <tr>
-                                        <th scope="col" class="px-6 py-3">Saham</th>
-                                        <th scope="col" class="px-6 py-3">Tgl Rekomendasi</th>
-                                        <th scope="col" class="px-6 py-3 text-right">Harga Awal</th>
-                                        <th scope="col" class="px-6 py-3 text-right">Harga Terkini</th>
-                                        <th scope="col" class="px-6 py-3 text-right">Gain (%)</th>
-                                        <th scope="col" class="px-6 py-3 text-center">Aksi</th>
+                                        <th scope="col" class="responsive-px py-3"><input type="checkbox" id="select-all-ai" class="rounded"></th>
+                                        <th scope="col" class="responsive-px py-3">Saham</th>
+                                        <th scope="col" class="responsive-px py-3">Tgl Rekomendasi</th>
+                                        <th scope="col" class="responsive-px py-3 text-right">Harga Awal</th>
+                                        <th scope="col" class="responsive-px py-3 text-right">Harga Terkini</th>
+                                        <th scope="col" class="responsive-px py-3 text-right">Gain (%)</th>
+                                        <th scope="col" class="responsive-px py-3 text-center">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody id="performance-table-body"></tbody>
@@ -118,10 +149,12 @@
                         </div>
                     </div>
                     <!-- Pagination for AI Performance -->
-                    <div id="ai-pagination" class="hidden mt-4 flex items-center justify-between">
-                        <button id="ai-prev-page" class="bg-white border border-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">&laquo; Sebelumnya</button>
-                        <span id="ai-page-info" class="text-sm text-gray-600"></span>
-                        <button id="ai-next-page" class="bg-white border border-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">Berikutnya &raquo;</button>
+                    <div id="ai-pagination" class="hidden mt-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+                        <span id="ai-page-info" class="text-sm text-gray-600 mb-2 sm:mb-0"></span>
+                        <div class="flex gap-2">
+                            <button id="ai-prev-page" class="bg-white border border-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm">&laquo; Sebelumnya</button>
+                            <button id="ai-next-page" class="bg-white border border-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm">Berikutnya &raquo;</button>
+                        </div>
                     </div>
                 </section>
             </div>
@@ -163,17 +196,24 @@
                             </button>
                         </div>
                     </div>
+                     <div class="flex items-center gap-4 mb-4">
+                        <h2 class="text-xl font-bold text-gray-700">Daftar Lacak Manual</h2>
+                        <button id="bulk-delete-manual-btn" class="hidden bg-red-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-600 text-sm">
+                            <i class="fas fa-trash-alt mr-2"></i>Hapus Terpilih
+                        </button>
+                    </div>
                     <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm text-left text-gray-500">
                                 <thead class="text-xs text-gray-700 uppercase bg-gray-100">
                                     <tr>
-                                        <th scope="col" class="px-6 py-3">Saham</th>
-                                        <th scope="col" class="px-6 py-3">Tgl Ditambahkan</th>
-                                        <th scope="col" class="px-6 py-3 text-right">Harga Awal</th>
-                                        <th scope="col" class="px-6 py-3 text-right">Harga Terkini</th>
-                                        <th scope="col" class="px-6 py-3 text-right">Gain (%)</th>
-                                        <th scope="col" class="px-6 py-3 text-center">Aksi</th>
+                                        <th scope="col" class="responsive-px py-3"><input type="checkbox" id="select-all-manual" class="rounded"></th>
+                                        <th scope="col" class="responsive-px py-3">Saham</th>
+                                        <th scope="col" class="responsive-px py-3">Tgl Ditambahkan</th>
+                                        <th scope="col" class="responsive-px py-3 text-right">Harga Awal</th>
+                                        <th scope="col" class="responsive-px py-3 text-right">Harga Terkini</th>
+                                        <th scope="col" class="responsive-px py-3 text-right">Gain (%)</th>
+                                        <th scope="col" class="responsive-px py-3 text-center">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody id="manual-performance-table-body"></tbody>
@@ -181,10 +221,12 @@
                         </div>
                     </div>
                      <!-- Pagination for Manual Tracking -->
-                    <div id="manual-pagination" class="hidden mt-4 flex items-center justify-between">
-                        <button id="manual-prev-page" class="bg-white border border-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">&laquo; Sebelumnya</button>
-                        <span id="manual-page-info" class="text-sm text-gray-600"></span>
-                        <button id="manual-next-page" class="bg-white border border-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed">Berikutnya &raquo;</button>
+                    <div id="manual-pagination" class="hidden mt-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+                        <span id="manual-page-info" class="text-sm text-gray-600 mb-2 sm:mb-0"></span>
+                        <div class="flex gap-2">
+                            <button id="manual-prev-page" class="bg-white border border-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm">&laquo; Sebelumnya</button>
+                            <button id="manual-next-page" class="bg-white border border-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm">Berikutnya &raquo;</button>
+                        </div>
                     </div>
                 </section>
             </div>
@@ -192,7 +234,20 @@
         </main>
     </div>
     
+    <!-- Toast Notification -->
     <div id="toast-notification" class="toast"></div>
+    
+    <!-- Confirmation Modal -->
+    <div id="confirmation-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h3 class="text-lg font-bold text-gray-900 mb-4">Konfirmasi Penghapusan</h3>
+            <p id="modal-message" class="text-gray-600 mb-6">Apakah Anda yakin ingin melanjutkan?</p>
+            <div class="flex justify-end space-x-4">
+                <button id="modal-cancel-btn" class="bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg hover:bg-gray-300">Batal</button>
+                <button id="modal-confirm-btn" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700">Ya, Hapus</button>
+            </div>
+        </div>
+    </div>
     
     <script type="module">
         document.addEventListener('DOMContentLoaded', function() {
@@ -211,7 +266,13 @@
             // --- Firebase instances from global window object ---
             const db = window.db;
             const auth = window.auth;
-            const { collection, addDoc, getDocs, query, where, Timestamp, deleteDoc, doc, signInAnonymously, onAuthStateChanged, orderBy } = window.firebase;
+            const { collection, addDoc, getDocs, query, where, Timestamp, deleteDoc, doc, signInAnonymously, onAuthStateChanged, orderBy, writeBatch } = window.firebase;
+            
+            // --- Modal Elements ---
+            const modal = document.getElementById('confirmation-modal');
+            const modalMessage = document.getElementById('modal-message');
+            const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+            const modalCancelBtn = document.getElementById('modal-cancel-btn');
 
             // --- Core Application Logic ---
             
@@ -336,18 +397,20 @@
             }
             
             async function removeStockFromAiRecs(id) {
-                try {
-                    await deleteDoc(doc(db, "ai_recommendations", id));
-                    showToast(`Rekomendasi berhasil dihapus.`);
-                    localStorage.removeItem('ai_perf_daily');
-                    localStorage.removeItem('ai_perf_weekly');
-                    localStorage.removeItem('ai_perf_monthly');
-                } catch (error) {
-                    showToast(`Gagal menghapus: ${error.message}`);
-                    console.error("Error removing AI recommendation:", error);
-                }
-                const currentPeriod = document.querySelector('.time-filter-btn.active-filter').dataset.period;
-                await renderPerformance(currentPeriod);
+                showConfirmationModal('Apakah Anda yakin ingin menghapus rekomendasi ini?', async () => {
+                    try {
+                        await deleteDoc(doc(db, "ai_recommendations", id));
+                        showToast(`Rekomendasi berhasil dihapus.`);
+                        localStorage.removeItem('ai_perf_daily');
+                        localStorage.removeItem('ai_perf_weekly');
+                        localStorage.removeItem('ai_perf_monthly');
+                    } catch (error) {
+                        showToast(`Gagal menghapus: ${error.message}`);
+                        console.error("Error removing AI recommendation:", error);
+                    }
+                    const currentPeriod = document.querySelector('.time-filter-btn.active-filter').dataset.period;
+                    await renderPerformance(currentPeriod);
+                });
             }
 
             function displayAiPerformancePage(page) {
@@ -359,7 +422,7 @@
                 const nextButton = document.getElementById('ai-next-page');
 
                 if (aiPerformanceData.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-gray-500">Tidak ada data untuk ditampilkan.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="7" class="text-center p-8 text-gray-500">Tidak ada data untuk ditampilkan.</td></tr>`;
                     paginationContainer.classList.add('hidden');
                     return;
                 }
@@ -375,7 +438,14 @@
                     row.className = `bg-white border-b hover:bg-gray-50 ${data.is_top_pick ? 'top-pick-highlight' : ''}`;
                     const gainClass = data.gain > 0 ? 'positive-gain' : (data.gain < 0 ? 'negative-gain' : 'neutral-gain');
                     const gainIcon = data.gain > 0 ? 'fa-arrow-up' : 'fa-arrow-down';
-                    row.innerHTML = `<td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${data.ticker} ${data.is_top_pick ? '<i class="fas fa-star text-yellow-400 ml-1"></i>' : ''}</td><td class="px-6 py-4">${data.date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</td><td class="px-6 py-4 text-right">Rp ${Math.round(data.initialPrice).toLocaleString('id-ID')}</td><td class="px-6 py-4 text-right">Rp ${Math.round(data.currentPrice).toLocaleString('id-ID')}</td><td class="px-6 py-4 text-right"><span class="font-semibold ${gainClass}">${data.gain > 0 ? '+' : ''}${data.gain.toFixed(2)}% ${data.gain !== 0 ? `<i class="fas ${gainIcon} ml-1 text-xs"></i>` : ''}</span></td><td class="px-6 py-4 text-center"><button data-id="${data.id}" class="remove-ai-btn text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button></td>`;
+                    row.innerHTML = `
+                        <td class="responsive-px py-4"><input type="checkbox" class="rounded row-checkbox-ai" data-id="${data.id}"></td>
+                        <td class="responsive-px py-4 font-medium text-gray-900 whitespace-nowrap">${data.ticker} ${data.is_top_pick ? '<i class="fas fa-star text-yellow-400 ml-1"></i>' : ''}</td>
+                        <td class="responsive-px py-4">${data.date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                        <td class="responsive-px py-4 text-right">Rp ${Math.round(data.initialPrice).toLocaleString('id-ID')}</td>
+                        <td class="responsive-px py-4 text-right">Rp ${Math.round(data.currentPrice).toLocaleString('id-ID')}</td>
+                        <td class="responsive-px py-4 text-right"><span class="font-semibold ${gainClass}">${data.gain > 0 ? '+' : ''}${data.gain.toFixed(2)}% ${data.gain !== 0 ? `<i class="fas ${gainIcon} ml-1 text-xs"></i>` : ''}</span></td>
+                        <td class="responsive-px py-4 text-center"><button data-id="${data.id}" class="remove-ai-btn text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button></td>`;
                     tableBody.appendChild(row);
                 });
 
@@ -384,6 +454,9 @@
                 prevButton.disabled = page === 1;
                 nextButton.disabled = page === totalPages;
                 paginationContainer.classList.remove('hidden');
+
+                document.querySelectorAll('.row-checkbox-ai').forEach(cb => cb.addEventListener('change', () => updateBulkDeleteUI('performance-table-body', 'bulk-delete-ai-btn')));
+                updateBulkDeleteUI('performance-table-body', 'bulk-delete-ai-btn');
             }
             
             async function renderPerformance(period = 'daily') {
@@ -394,22 +467,19 @@
                 if (cached) {
                     aiPerformanceData = cached.map(item => ({...item, date: new Date(item.date) }));
                     displayAiPerformancePage(1);
-                    tableBody.innerHTML += `<tr><td colspan="6" class="text-center p-2 text-xs text-blue-500 italic">Menampilkan data cache. Memuat data terbaru...</td></tr>`;
+                    tableBody.innerHTML += `<tr><td colspan="7" class="text-center p-2 text-xs text-blue-500 italic">Menampilkan data cache. Memuat data terbaru...</td></tr>`;
                 } else {
-                     tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-gray-500">Memuat data performa...</td></tr>`;
+                     tableBody.innerHTML = `<tr><td colspan="7" class="text-center p-8 text-gray-500">Memuat data performa...</td></tr>`;
                 }
 
                 if (!db || !auth.currentUser) { return; }
 
-                const now = new Date();
-                const periodMap = { weekly: 7, monthly: 30 };
                 let cutoffDate = new Date();
-
                 if (period === 'daily') {
                     cutoffDate.setHours(0, 0, 0, 0); // Start of today
                 } else {
-                    const daysToFilter = periodMap[period];
-                    cutoffDate.setDate(now.getDate() - daysToFilter);
+                    const periodMap = { weekly: 7, monthly: 30 };
+                    cutoffDate.setDate(cutoffDate.getDate() - (periodMap[period] || 0));
                 }
                 
                 try {
@@ -439,7 +509,7 @@
 
                 } catch (error) {
                     console.error("Error fetching performance data:", error);
-                    tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-red-500">Gagal memuat data performa.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="7" class="text-center p-8 text-red-500">Gagal memuat data performa.</td></tr>`;
                 }
             }
 
@@ -477,14 +547,16 @@
              }
 
             async function removeStockFromManualTracking(id) {
-                 try {
-                     await deleteDoc(doc(db, "manual_tracking", id));
-                     showToast(`Saham berhasil dihapus.`);
-                     localStorage.removeItem('manual_perf');
-                 } catch (error) {
-                     showToast(`Gagal menghapus: ${error.message}`);
-                 }
-                 await renderManualPerformance();
+                 showConfirmationModal('Apakah Anda yakin ingin menghapus saham ini dari daftar lacak?', async () => {
+                     try {
+                         await deleteDoc(doc(db, "manual_tracking", id));
+                         showToast(`Saham berhasil dihapus.`);
+                         localStorage.removeItem('manual_perf');
+                     } catch (error) {
+                         showToast(`Gagal menghapus: ${error.message}`);
+                     }
+                     await renderManualPerformance();
+                 });
             }
 
             function displayManualPerformancePage(page) {
@@ -496,7 +568,7 @@
                 const nextButton = document.getElementById('manual-next-page');
 
                 if (manualPerformanceData.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-gray-500">Tidak ada data untuk ditampilkan.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="7" class="text-center p-8 text-gray-500">Tidak ada data untuk ditampilkan.</td></tr>`;
                     paginationContainer.classList.add('hidden');
                     return;
                 }
@@ -512,7 +584,14 @@
                     row.className = 'bg-white border-b hover:bg-gray-50';
                     const gainClass = data.gain > 0 ? 'positive-gain' : (data.gain < 0 ? 'negative-gain' : 'neutral-gain');
                     const gainIcon = data.gain > 0 ? 'fa-arrow-up' : 'fa-arrow-down';
-                    row.innerHTML = `<td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${data.ticker}</td><td class="px-6 py-4">${data.date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</td><td class="px-6 py-4 text-right">Rp ${Math.round(data.initialPrice).toLocaleString('id-ID')}</td><td class="px-6 py-4 text-right">Rp ${Math.round(data.currentPrice).toLocaleString('id-ID')}</td><td class="px-6 py-4 text-right"><span class="font-semibold ${gainClass}">${data.gain > 0 ? '+' : ''}${data.gain.toFixed(2)}% ${data.gain !== 0 ? `<i class="fas ${gainIcon} ml-1 text-xs"></i>` : ''}</span></td><td class="px-6 py-4 text-center"><button data-id="${data.id}" class="remove-manual-btn text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button></td>`;
+                    row.innerHTML = `
+                        <td class="responsive-px py-4"><input type="checkbox" class="rounded row-checkbox-manual" data-id="${data.id}"></td>
+                        <td class="responsive-px py-4 font-medium text-gray-900 whitespace-nowrap">${data.ticker}</td>
+                        <td class="responsive-px py-4">${data.date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                        <td class="responsive-px py-4 text-right">Rp ${Math.round(data.initialPrice).toLocaleString('id-ID')}</td>
+                        <td class="responsive-px py-4 text-right">Rp ${Math.round(data.currentPrice).toLocaleString('id-ID')}</td>
+                        <td class="responsive-px py-4 text-right"><span class="font-semibold ${gainClass}">${data.gain > 0 ? '+' : ''}${data.gain.toFixed(2)}% ${data.gain !== 0 ? `<i class="fas ${gainIcon} ml-1 text-xs"></i>` : ''}</span></td>
+                        <td class="responsive-px py-4 text-center"><button data-id="${data.id}" class="remove-manual-btn text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button></td>`;
                     tableBody.appendChild(row);
                 });
 
@@ -521,6 +600,9 @@
                 prevButton.disabled = page === 1;
                 nextButton.disabled = page === totalPages;
                 paginationContainer.classList.remove('hidden');
+
+                document.querySelectorAll('.row-checkbox-manual').forEach(cb => cb.addEventListener('change', () => updateBulkDeleteUI('manual-performance-table-body', 'bulk-delete-manual-btn')));
+                updateBulkDeleteUI('manual-performance-table-body', 'bulk-delete-manual-btn');
             }
             
             async function renderManualPerformance() {
@@ -531,9 +613,9 @@
                 if (cached) {
                     manualPerformanceData = cached.map(item => ({...item, date: new Date(item.date) }));
                     displayManualPerformancePage(1);
-                     tableBody.innerHTML += `<tr><td colspan="6" class="text-center p-2 text-xs text-blue-500 italic">Menampilkan data cache. Memuat data terbaru...</td></tr>`;
+                     tableBody.innerHTML += `<tr><td colspan="7" class="text-center p-2 text-xs text-blue-500 italic">Menampilkan data cache. Memuat data terbaru...</td></tr>`;
                 } else {
-                    tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-gray-500">Memuat data dari Firestore...</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="7" class="text-center p-8 text-gray-500">Memuat data dari Firestore...</td></tr>`;
                 }
 
                 if (!db || !auth.currentUser) { return; }
@@ -564,10 +646,57 @@
                     displayManualPerformancePage(manualCurrentPage || 1);
                 
                 } catch (error) {
-                    tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-red-500">Gagal memuat data.</td></tr>`; 
+                    tableBody.innerHTML = `<tr><td colspan="7" class="text-center p-8 text-red-500">Gagal memuat data.</td></tr>`; 
                     console.error("Error fetching manual tracking data:", error);
                 }
             }
+
+             // --- Bulk Delete Functions ---
+            function updateBulkDeleteUI(tableBodyId, deleteButtonId) {
+                const deleteButton = document.getElementById(deleteButtonId);
+                const checkboxes = document.querySelectorAll(`#${tableBodyId} input[type="checkbox"]`);
+                const selectedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+                if (selectedCount > 0) {
+                    deleteButton.classList.remove('hidden');
+                } else {
+                    deleteButton.classList.add('hidden');
+                }
+            }
+            
+            async function handleBulkDelete(collectionName, tableBodyId, deleteButtonId, renderFn, cacheKeys) {
+                const checkboxes = document.querySelectorAll(`#${tableBodyId} input[type="checkbox"]:checked`);
+                const idsToDelete = Array.from(checkboxes).map(cb => cb.dataset.id);
+                if (idsToDelete.length === 0) {
+                    showToast('Tidak ada item yang dipilih.');
+                    return;
+                }
+
+                showConfirmationModal(`Apakah Anda yakin ingin menghapus ${idsToDelete.length} item terpilih?`, async () => {
+                    const deleteButton = document.getElementById(deleteButtonId);
+                    deleteButton.disabled = true;
+                    deleteButton.innerHTML = `<div class="loader !w-4 !h-4 !border-2 mx-auto"></div>`;
+
+                    try {
+                        const batch = writeBatch(db);
+                        idsToDelete.forEach(id => {
+                            const docRef = doc(db, collectionName, id);
+                            batch.delete(docRef);
+                        });
+                        await batch.commit();
+                        showToast(`${idsToDelete.length} item berhasil dihapus.`);
+                        cacheKeys.forEach(key => localStorage.removeItem(key));
+                    } catch (error) {
+                        showToast(`Gagal menghapus item: ${error.message}`);
+                        console.error('Bulk delete error:', error);
+                    } finally {
+                        deleteButton.disabled = false;
+                        deleteButton.innerHTML = `<i class="fas fa-trash-alt mr-2"></i>Hapus Terpilih`;
+                        deleteButton.classList.add('hidden');
+                        await renderFn();
+                    }
+                });
+            }
+
 
             // --- Caching Functions ---
             function saveToCache(key, data) {
@@ -617,6 +746,23 @@
             function setDate() { document.getElementById('current-date').textContent = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); }
             function showToast(message) { const toast = document.getElementById('toast-notification'); toast.textContent = message; toast.classList.add('show'); setTimeout(() => { toast.classList.remove('show'); }, 3000); }
             
+             // --- Modal Functions ---
+            function showConfirmationModal(message, onConfirm) {
+                modalMessage.textContent = message;
+                modal.classList.remove('hidden');
+
+                modalConfirmBtn.onclick = () => {
+                    onConfirm();
+                    hideModal();
+                };
+            }
+
+            function hideModal() {
+                modal.classList.add('hidden');
+                modalConfirmBtn.onclick = null; // Hapus listener agar tidak menumpuk
+            }
+
+
             // --- APPLICATION INITIALIZATION ---
             function initAuth() {
                 onAuthStateChanged(auth, (user) => {
@@ -635,6 +781,14 @@
 
             async function initializeAppLogic() {
                 setDate();
+                
+                // Modal Listeners
+                modalCancelBtn.addEventListener('click', hideModal);
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) { // Hanya tutup jika klik di overlay
+                        hideModal();
+                    }
+                });
                 
                 // Pagination Listeners
                 document.getElementById('ai-prev-page').addEventListener('click', () => displayAiPerformancePage(aiCurrentPage - 1));
@@ -656,6 +810,20 @@
                 document.getElementById('manual-analyze-btn').addEventListener('click', handleManualAnalysis);
                 document.getElementById('add-manual-track-btn').addEventListener('click', addStockToManualTracking);
                 document.getElementById('get-ai-recommendation-btn')?.addEventListener('click', getAIRecommendations);
+
+                 // Bulk Delete Listeners
+                document.getElementById('bulk-delete-ai-btn').addEventListener('click', () => handleBulkDelete('ai_recommendations', 'performance-table-body', 'bulk-delete-ai-btn', () => renderPerformance(document.querySelector('.time-filter-btn.active-filter').dataset.period), ['ai_perf_daily', 'ai_perf_weekly', 'ai_perf_monthly']));
+                document.getElementById('bulk-delete-manual-btn').addEventListener('click', () => handleBulkDelete('manual_tracking', 'manual-performance-table-body', 'bulk-delete-manual-btn', renderManualPerformance, ['manual_perf']));
+                
+                // Select All Listeners
+                document.getElementById('select-all-ai').addEventListener('change', (e) => {
+                    document.querySelectorAll('.row-checkbox-ai').forEach(cb => cb.checked = e.target.checked);
+                    updateBulkDeleteUI('performance-table-body', 'bulk-delete-ai-btn');
+                });
+                document.getElementById('select-all-manual').addEventListener('change', (e) => {
+                    document.querySelectorAll('.row-checkbox-manual').forEach(cb => cb.checked = e.target.checked);
+                    updateBulkDeleteUI('manual-performance-table-body', 'bulk-delete-manual-btn');
+                });
 
                 // Initial data load
                 renderPerformance();
