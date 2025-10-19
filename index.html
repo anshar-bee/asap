@@ -215,21 +215,130 @@
 
             // --- Core Application Logic ---
             
-            async function fetchStockPrice(ticker) { /* ... (fungsi ini tidak berubah) ... */ return null; }
+            async function fetchStockPrice(ticker) {
+                const url = `${GOOGLE_SHEET_API_URL}?ticker=${ticker}`;
+                try {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    if (data.price && data.ticker) {
+                        const stockInfo = stockData.find(s => s.ticker === data.ticker);
+                        return { ...data, name: stockInfo?.name || data.ticker };
+                    }
+                    return null;
+                } catch (error) {
+                    console.error(`Gagal mengambil harga untuk ${ticker}:`, error);
+                    return null;
+                }
+            }
 
-            async function triggerDailyRecommendation() { /* ... (fungsi ini tidak berubah) ... */ }
+            async function triggerDailyRecommendation() {
+                const statusEl = document.getElementById('ai-recommendation-status');
+                const now = new Date();
+                
+                const todayStart = new Date();
+                todayStart.setHours(0, 0, 0, 0);
+                const q = query(collection(db, "ai_recommendations"), where("created_at", ">=", todayStart));
+                const querySnapshot = await getDocs(q);
 
-            async function getAIRecommendations() { /* ... (fungsi ini tidak berubah) ... */ }
+                if (!querySnapshot.empty) {
+                    statusEl.textContent = "Rekomendasi AI untuk hari ini telah diterima.";
+                    return;
+                }
 
-            async function handleManualAnalysis() { /* ... (fungsi ini tidak berubah) ... */ }
+                if (now.getHours() >= 8) {
+                    statusEl.textContent = "Meminta rekomendasi AI untuk hari ini...";
+                    await getAIRecommendations();
+                } else {
+                     statusEl.textContent = "Rekomendasi AI otomatis akan berjalan setelah pukul 08:00 pagi.";
+                }
+            }
 
-            async function callGeminiAPI(prompt) { /* ... (fungsi ini tidak berubah) ... */ }
+            async function getAIRecommendations() {
+                if (!db || !auth.currentUser) {
+                    showToast("Autentikasi sedang diproses, silakan coba sesaat lagi.");
+                    return;
+                }
+                try {
+                    const todayStart = new Date();
+                    todayStart.setHours(0, 0, 0, 0);
+                    const q = query(collection(db, "ai_recommendations"), where("created_at", ">=", todayStart));
+                    const querySnapshot = await getDocs(q);
+
+                    if (!querySnapshot.empty) {
+                        showToast("Rekomendasi untuk hari ini sudah ada.");
+                        document.getElementById('ai-recommendation-status').textContent = "Rekomendasi AI untuk hari ini telah diterima.";
+                        return;
+                    }
+
+                    const issiTickers = stockData.filter(s => s.isSyariah && !s.inSpecialMonitoring).map(s => s.ticker).join(', ');
+                    const prompt = `Anda adalah seorang analis saham ahli. Dari daftar saham syariah (ISSI) berikut: ${issiTickers}, analisislah berdasarkan berita keuangan, laporan perusahaan, analisis pasar terkini, dan indikator teknikal (RSI, MFI, MACD, Volume, Stochastic, Moving Average). Berikan 4 saham yang paling direkomendasikan hari ini. Format jawabanmu HANYA sebagai daftar kode saham 4 huruf yang dipisahkan koma. PENTING: Saham pertama dalam daftar adalah yang paling Anda rekomendasikan. Contoh: TLKM,ADRO,ICBP,UNVR`;
+                    
+                    const recommendationText = await callGeminiAPI(prompt);
+                    const tickers = recommendationText.split(',').map(t => t.trim().toUpperCase()).filter(t => t.length === 4);
+                    
+                    if (tickers.length === 0) {
+                        showToast("AI tidak memberikan rekomendasi saat ini. Coba lagi nanti.");
+                        return;
+                    }
+
+                    showToast(`AI merekomendasikan: ${tickers.join(', ')}. Menyimpan ke Firebase...`);
+
+                    for (let i = 0; i < tickers.length; i++) {
+                        const ticker = tickers[i];
+                        const stockInfo = await fetchStockPrice(ticker);
+                        if(stockInfo) {
+                           await addDoc(collection(db, "ai_recommendations"), {
+                                ticker: stockInfo.ticker,
+                                name: stockInfo.name,
+                                initial_price: stockInfo.price,
+                                is_top_pick: i === 0,
+                                created_at: Timestamp.fromDate(new Date())
+                            });
+                        }
+                    }
+                    
+                    document.getElementById('ai-recommendation-status').textContent = "Rekomendasi AI untuk hari ini berhasil disimpan!";
+                    await renderPerformance();
+
+                } catch (error) {
+                    showToast(`Gagal mendapatkan rekomendasi AI: ${error.message}`);
+                    document.getElementById('ai-recommendation-status').textContent = `Gagal mendapatkan rekomendasi AI. Coba lagi nanti.`;
+                    console.error("Error getting AI recommendation:", error);
+                }
+            }
+
+            async function handleManualAnalysis() {
+                const input = document.getElementById('manual-stock-input').value;
+                const resultContainer = document.getElementById('manual-analysis-result');
+                if (!input.trim()) { showToast("Silakan masukkan minimal satu kode saham."); return; }
+                if (!GEMINI_API_KEY) { showToast('Kunci API Gemini belum dimasukkan ke dalam kode.'); return; }
+                const tickers = input.split(',').map(t => t.trim().toUpperCase()).filter(t => t);
+                resultContainer.innerHTML = `<div class="flex items-center justify-center py-8"><div class="loader"></div> <p class="ml-4 text-gray-500">AI sedang menganalisis...</p></div>`;
+                try {
+                    const prompt = `Anda adalah seorang analis teknikal dan fundamental ahli. Saya ingin Anda menganalisis dan membandingkan saham-saham berikut: ${tickers.join(', ')}. Untuk setiap saham, berikan analisis berdasarkan data terkini (asumsikan Anda memiliki akses ke data tersebut) yang mencakup: 1. Indikator Teknikal (RSI, Stochastic, MACD, MFI, Volume, Moving Average). 2. Aspek Fundamental (berita keuangan, ringkasan laporan perusahaan, analisis pasar umum). Setelah menganalisis setiap saham, berikan dua bagian kesimpulan. Pertama, bagian 'Urutan Rekomendasi' yang berisi daftar urutan saham dari yang paling direkomendasikan (peringkat 1) hingga yang kurang direkomendasikan. Kedua, bagian 'Rekomendasi Utama' yang menjelaskan secara ringkas saham mana yang menjadi pilihan teratas dan mengapa. Format jawaban Anda dengan heading tebal untuk setiap saham dan juga untuk 'Urutan Rekomendasi' dan 'Rekomendasi Utama'.`;
+                    const analysisText = await callGeminiAPI(prompt);
+                    resultContainer.innerHTML = analysisText
+                        .replace(/\*\*(.*?)\*\*/g, '<h4>$1</h4>')
+                        .replace(/\n/g, '<br>');
+                } catch (error) {
+                     resultContainer.innerHTML = `<p class="text-red-500 text-center">Terjadi kesalahan: ${error.message}</p>`;
+                     console.error("Gemini API Error:", error);
+                }
+            }
+
+            async function callGeminiAPI(prompt) {
+                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
+                 const payload = { contents: [{ parts: [{ text: prompt }] }] };
+                 const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                 if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.error.message || 'Gagal berkomunikasi dengan API.'); }
+                 const result = await response.json();
+                 return result.candidates[0].content.parts[0].text;
+            }
             
             async function removeStockFromAiRecs(id) {
                 try {
                     await deleteDoc(doc(db, "ai_recommendations", id));
                     showToast(`Rekomendasi berhasil dihapus.`);
-                    // Clear all related caches to force a refresh
                     localStorage.removeItem('ai_perf_daily');
                     localStorage.removeItem('ai_perf_weekly');
                     localStorage.removeItem('ai_perf_monthly');
@@ -237,7 +346,6 @@
                     showToast(`Gagal menghapus: ${error.message}`);
                     console.error("Error removing AI recommendation:", error);
                 }
-                // Re-render the current view to reflect deletion
                 const currentPeriod = document.querySelector('.time-filter-btn.active-filter').dataset.period;
                 await renderPerformance(currentPeriod);
             }
@@ -282,10 +390,9 @@
                 const tableBody = document.getElementById('performance-table-body');
                 const cacheKey = `ai_perf_${period}`;
                 
-                // 1. Coba muat dari cache dulu
                 const cached = getFromCache(cacheKey);
                 if (cached) {
-                    aiPerformanceData = cached.map(item => ({...item, date: new Date(item.date) })); // Re-create Date objects
+                    aiPerformanceData = cached.map(item => ({...item, date: new Date(item.date) }));
                     displayAiPerformancePage(1);
                     tableBody.innerHTML += `<tr><td colspan="6" class="text-center p-2 text-xs text-blue-500 italic">Menampilkan data cache. Memuat data terbaru...</td></tr>`;
                 } else {
@@ -295,10 +402,15 @@
                 if (!db || !auth.currentUser) { return; }
 
                 const now = new Date();
-                const periodMap = { daily: 1, weekly: 7, monthly: 30 };
-                const daysToFilter = periodMap[period] || 1;
-                const cutoffDate = new Date();
-                cutoffDate.setDate(now.getDate() - daysToFilter);
+                const periodMap = { weekly: 7, monthly: 30 };
+                let cutoffDate = new Date();
+
+                if (period === 'daily') {
+                    cutoffDate.setHours(0, 0, 0, 0); // Start of today
+                } else {
+                    const daysToFilter = periodMap[period];
+                    cutoffDate.setDate(now.getDate() - daysToFilter);
+                }
                 
                 try {
                     const q = query(collection(db, "ai_recommendations"), where("created_at", ">=", cutoffDate));
@@ -332,9 +444,48 @@
             }
 
             // --- Manual Tracking Functions ---
-            async function addStockToManualTracking() { /* ... (fungsi ini tidak berubah, tetapi memanggil renderManualPerformance) ... */ }
+            async function addStockToManualTracking() {
+                const input = document.getElementById('manual-track-input');
+                const button = document.getElementById('add-manual-track-btn');
+                const ticker = input.value.trim().toUpperCase();
+                if (!ticker) { showToast("Silakan masukkan kode saham."); return; }
+                button.disabled = true;
+                button.innerHTML = `<div class="loader !w-5 !h-5 !border-2 mx-auto"></div>`;
+                const stockInfo = await fetchStockPrice(ticker);
+                if (!stockInfo) { 
+                    showToast(`Saham dengan kode ${ticker} tidak ditemukan atau API gagal.`); 
+                    button.disabled = false; 
+                    button.innerHTML = `<i class="fas fa-plus mr-2"></i> Tambahkan`; 
+                    return; 
+                }
+                
+                try {
+                    await addDoc(collection(db, "manual_tracking"), {
+                        ticker: stockInfo.ticker,
+                        initial_price: stockInfo.price,
+                        created_at: Timestamp.fromDate(new Date())
+                    });
+                    showToast(`${ticker} berhasil ditambahkan ke daftar lacak.`);
+                    input.value = '';
+                } catch (error) {
+                     showToast(`Gagal menambahkan ${ticker}: ${error.message}`);
+                }
+                
+                await renderManualPerformance();
+                button.disabled = false;
+                button.innerHTML = `<i class="fas fa-plus mr-2"></i> Tambahkan`;
+             }
 
-            async function removeStockFromManualTracking(id) { /* ... (fungsi ini tidak berubah, tetapi memanggil renderManualPerformance) ... */ }
+            async function removeStockFromManualTracking(id) {
+                 try {
+                     await deleteDoc(doc(db, "manual_tracking", id));
+                     showToast(`Saham berhasil dihapus.`);
+                     localStorage.removeItem('manual_perf');
+                 } catch (error) {
+                     showToast(`Gagal menghapus: ${error.message}`);
+                 }
+                 await renderManualPerformance();
+            }
 
             function displayManualPerformancePage(page) {
                 manualCurrentPage = page;
@@ -440,10 +591,31 @@
             }
 
             // --- UI & Event Handlers ---
-            function handleTabClick(event) { /* ... (fungsi ini tidak berubah) ... */ }
+            function handleTabClick(event) {
+                const tabButtons = document.querySelectorAll('.tab-btn');
+                tabButtons.forEach(btn => {
+                    btn.classList.remove('active');
+                    btn.classList.add('border-transparent', 'text-gray-500', 'font-medium');
+                    btn.classList.remove('font-semibold')
+                });
+                event.target.classList.add('active');
+                event.target.classList.remove('border-transparent', 'text-gray-500');
+                event.target.classList.add('font-semibold');
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+                const targetId = `tab-content-${event.target.id.split('-')[2]}`;
+                document.getElementById(targetId).classList.remove('hidden');
+
+                if (targetId === 'tab-content-tracking') {
+                    renderManualPerformance();
+                }
+                 if (targetId === 'tab-content-dashboard') {
+                    const currentPeriod = document.querySelector('.time-filter-btn.active-filter').dataset.period;
+                    renderPerformance(currentPeriod);
+                }
+            }
             
-            function setDate() { /* ... (fungsi ini tidak berubah) ... */ }
-            function showToast(message) { /* ... (fungsi ini tidak berubah) ... */ }
+            function setDate() { document.getElementById('current-date').textContent = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); }
+            function showToast(message) { const toast = document.getElementById('toast-notification'); toast.textContent = message; toast.classList.add('show'); setTimeout(() => { toast.classList.remove('show'); }, 3000); }
             
             // --- APPLICATION INITIALIZATION ---
             function initAuth() {
